@@ -16,6 +16,7 @@ from services.inventory_service.src.schemas.stock import (
     StockAuditResponse,
 )
 from services.inventory_service.src.services import stock_service
+from shared.auth import CurrentUser, Permissions, require_permission
 
 router = APIRouter(prefix="/inventory", tags=["Inventory & Stock"])
 
@@ -27,6 +28,7 @@ async def list_outlet_inventory(
     limit: int = Query(default=100, le=200),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.STOCK_READ)),
 ) -> List[OutletInventoryResponse]:
     """List current stock levels for a specific outlet, with optional low-stock filter."""
     stmt = (
@@ -55,6 +57,7 @@ async def get_variant_inventory(
     outlet_id: UUID,
     variant_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.STOCK_READ)),
 ) -> OutletInventoryResponse:
     """Retrieve stock level for a specific product variant at an outlet."""
     stmt = (
@@ -78,6 +81,7 @@ async def get_variant_inventory(
 async def adjust_stock(
     adjust_in: StockAdjustRequest,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.STOCK_ADJUST)),
 ) -> OutletInventoryResponse:
     """Manually add stock (intake) or subtract stock (write-off/damage) with audit logging."""
     try:
@@ -106,6 +110,7 @@ async def list_stock_audit_logs(
     limit: int = Query(default=50, le=100),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.STOCK_READ)),
 ) -> List[StockAuditResponse]:
     """View immutable stock audit log history for an outlet."""
     stmt = select(StockAuditLog).where(StockAuditLog.outlet_id == outlet_id)

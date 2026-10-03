@@ -14,6 +14,7 @@ from services.billing_service.src.schemas.order import CheckoutRequest, OrderRes
 from services.billing_service.src.schemas.payment import PaymentRequest, PaymentResponse
 from services.billing_service.src.schemas.receipt import ReceiptResponse
 from services.billing_service.src.services import billing_service
+from shared.auth import CurrentUser, Permissions, require_permission
 from shared.middleware.correlation import get_correlation_id
 
 router = APIRouter(prefix="/pos", tags=["Point of Sale & Billing"])
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/pos", tags=["Point of Sale & Billing"])
 async def checkout(
     checkout_in: CheckoutRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission(Permissions.POS_CHECKOUT)),
 ) -> OrderResponse:
     """
     Saga Entrypoint: Initiates checkout by creating an order in PENDING state
@@ -30,6 +32,9 @@ async def checkout(
     """
     try:
         correlation_id = get_correlation_id()
+        if not checkout_in.cashier_id:
+            checkout_in.cashier_id = current_user.id
+
         order = await billing_service.create_checkout_order(
             session=db,
             checkout_in=checkout_in,
@@ -47,6 +52,7 @@ async def checkout(
 async def get_order(
     order_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.POS_CHECKOUT)),
 ) -> OrderResponse:
     """Check order status and items (e.g. while POS waits for STOCK_RESERVED)."""
     stmt = (
@@ -66,6 +72,7 @@ async def pay_order(
     order_id: UUID,
     payment_in: PaymentRequest,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.POS_CHECKOUT)),
 ) -> OrderResponse:
     """
     Process payment for an order with reserved stock.
@@ -92,6 +99,7 @@ async def pay_order(
 async def get_receipt(
     order_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.POS_CHECKOUT)),
 ) -> ReceiptResponse:
     """Generate printable receipt and 80mm ESC/POS thermal text."""
     stmt = (

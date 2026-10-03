@@ -95,6 +95,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/inventory_db
       - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=dev-insecure-secret-key-replace-in-production-abcdef1234567890
+      - JWT_ALGORITHM=HS256
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,6 +117,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/billing_db
       - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=dev-insecure-secret-key-replace-in-production-abcdef1234567890
+      - JWT_ALGORITHM=HS256
     depends_on:
       postgres:
         condition: service_healthy

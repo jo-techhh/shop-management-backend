@@ -255,17 +255,58 @@ async def test_consumer_idempotency_duplicate_events():
 
 @pytest.mark.asyncio
 async def test_catalog_and_inventory_api():
+    from shared.auth import Permissions, create_access_token
+
+    admin_token = create_access_token({
+        "sub": str(uuid4()),
+        "email": "admin@shop.example.com",
+        "roles": ["ADMIN"],
+        "permissions": [
+            Permissions.CATALOG_READ,
+            Permissions.CATALOG_WRITE,
+            Permissions.STOCK_READ,
+            Permissions.STOCK_ADJUST,
+        ],
+        "is_superuser": True,
+    })
+    read_only_token = create_access_token({
+        "sub": str(uuid4()),
+        "email": "cashier@shop.example.com",
+        "roles": ["CASHIER"],
+        "permissions": [Permissions.CATALOG_READ, Permissions.STOCK_READ],
+        "is_superuser": False,
+    })
+
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    read_headers = {"Authorization": f"Bearer {read_only_token}"}
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Create Category
+        # 1. Unauthenticated request must return 401 Unauthorized
+        unauth_resp = await client.post(
+            "/catalog/categories",
+            json={"name": "Electronics", "slug": "electronics", "description": "Gadgets"},
+        )
+        assert unauth_resp.status_code == 401
+
+        # 2. Insufficient permission request must return 403 Forbidden
+        forbidden_resp = await client.post(
+            "/catalog/categories",
+            json={"name": "Electronics", "slug": "electronics", "description": "Gadgets"},
+            headers=read_headers,
+        )
+        assert forbidden_resp.status_code == 403
+
+        # 3. Create Category with Admin token
         cat_resp = await client.post(
             "/catalog/categories",
             json={"name": "Electronics", "slug": "electronics", "description": "Gadgets"},
+            headers=admin_headers,
         )
         assert cat_resp.status_code == 201
         cat_id = cat_resp.json()["id"]
 
-        # 2. Create Product with 2 Variants
+        # 4. Create Product with 2 Variants
         prod_resp = await client.post(
             "/catalog/products",
             json={
@@ -289,18 +330,19 @@ async def test_catalog_and_inventory_api():
                     },
                 ],
             },
+            headers=admin_headers,
         )
         assert prod_resp.status_code == 201
         prod_data = prod_resp.json()
         assert len(prod_data["variants"]) == 2
         var_id = prod_data["variants"][0]["id"]
 
-        # 3. Test Fast Barcode Lookup
-        barcode_resp = await client.get("/catalog/variants/barcode/999888777001")
+        # 5. Test Fast Barcode Lookup
+        barcode_resp = await client.get("/catalog/variants/barcode/999888777001", headers=read_headers)
         assert barcode_resp.status_code == 200
         assert barcode_resp.json()["sku"] == "HEADPHONE-BLK"
 
-        # 4. Adjust Stock via API
+        # 6. Adjust Stock via API
         outlet_id = str(uuid4())
         adjust_resp = await client.post(
             "/inventory/adjust",
@@ -310,14 +352,15 @@ async def test_catalog_and_inventory_api():
                 "quantity_change": 50,
                 "notes": "Opening store stock",
             },
+            headers=admin_headers,
         )
         assert adjust_resp.status_code == 200
         inv_data = adjust_resp.json()
         assert inv_data["quantity_on_hand"] == 50
         assert inv_data["available_quantity"] == 50
 
-        # 5. Read Outlet Inventory via API
-        list_inv = await client.get(f"/inventory/outlets/{outlet_id}")
+        # 7. Read Outlet Inventory via API
+        list_inv = await client.get(f"/inventory/outlets/{outlet_id}", headers=read_headers)
         assert list_inv.status_code == 200
         assert len(list_inv.json()) == 1
         assert list_inv.json()[0]["quantity_on_hand"] == 50

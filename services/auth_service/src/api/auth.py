@@ -1,7 +1,8 @@
 """
 Authentication endpoints: Login, Refresh, Me.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -75,14 +76,10 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(
-    refresh_data: RefreshTokenRequest,
-    db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
-    """Exchange valid refresh token for a new access token."""
+async def _execute_token_refresh(raw_refresh_token: str, db: AsyncSession) -> TokenResponse:
+    """Internal helper to validate refresh token and mint a new token pair."""
     try:
-        payload = decode_token(refresh_data.refresh_token)
+        payload = decode_token(raw_refresh_token)
         if payload.get("type") != "refresh":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -129,6 +126,44 @@ async def refresh_token(
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    refresh_data: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """Exchange valid refresh token for a new access token via POST body."""
+    return await _execute_token_refresh(refresh_data.refresh_token, db)
+
+
+@router.get("/refresh", response_model=TokenResponse)
+async def refresh_token_get(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    x_refresh_token: Optional[str] = Header(None, alias="X-Refresh-Token"),
+    refresh_token: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """
+    Exchange valid refresh token for a new access token via GET.
+    Accepts token via Authorization Bearer header, X-Refresh-Token header, or ?refresh_token query parameter.
+    """
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    elif x_refresh_token:
+        token = x_refresh_token.strip()
+    elif refresh_token:
+        token = refresh_token.strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token required (via Bearer header, X-Refresh-Token header, or ?refresh_token query parameter).",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return await _execute_token_refresh(token, db)
 
 
 @router.get("/me", response_model=UserResponse)

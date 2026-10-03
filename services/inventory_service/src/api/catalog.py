@@ -18,6 +18,7 @@ from services.inventory_service.src.schemas.catalog import (
     ProductVariantCreate,
     ProductVariantResponse,
 )
+from shared.auth import CurrentUser, Permissions, require_permission
 
 router = APIRouter(prefix="/catalog", tags=["Catalog"])
 
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/catalog", tags=["Catalog"])
 async def list_categories(
     active_only: bool = True,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
 ) -> List[CategoryResponse]:
     """List all product categories."""
     stmt = select(Category)
@@ -41,6 +43,7 @@ async def list_categories(
 async def create_category(
     cat_in: CategoryCreate,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_WRITE)),
 ) -> CategoryResponse:
     """Create a new product category."""
     existing = await db.execute(select(Category).where(Category.slug == cat_in.slug))
@@ -64,6 +67,7 @@ async def list_products(
     limit: int = Query(default=50, le=100),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
 ) -> List[ProductResponse]:
     """List products with their variants and category."""
     stmt = (
@@ -88,6 +92,7 @@ async def list_products(
 async def create_product(
     prod_in: ProductCreate,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_WRITE)),
 ) -> ProductResponse:
     """Create a base product with optional initial variants."""
     product = Product(
@@ -132,6 +137,7 @@ async def create_product(
 async def get_product(
     product_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
 ) -> ProductResponse:
     """Get product details by UUID."""
     res = await db.execute(
@@ -150,6 +156,7 @@ async def add_variant(
     product_id: UUID,
     variant_in: ProductVariantCreate,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_WRITE)),
 ) -> ProductVariantResponse:
     """Add a variant (SKU/Size/Color) to an existing product."""
     prod_check = await db.execute(select(Product).where(Product.id == product_id))
@@ -180,6 +187,7 @@ async def add_variant(
 async def get_variant_by_barcode(
     barcode: str,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
 ) -> ProductVariantResponse:
     """Fast barcode scanner lookup for POS counter cashiers."""
     res = await db.execute(
@@ -199,6 +207,7 @@ async def get_variant_by_barcode(
 async def get_variant_by_sku(
     sku: str,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
 ) -> ProductVariantResponse:
     """Lookup product variant by SKU code."""
     res = await db.execute(

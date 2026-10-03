@@ -8,7 +8,7 @@ from services.auth_service.src.config import settings
 from services.auth_service.src.core.permissions import ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS
 from services.auth_service.src.core.security import hash_password
 from services.auth_service.src.db.base import Base
-from services.auth_service.src.db.session import engine
+from services.auth_service.src.db.session import AsyncSessionLocal, engine
 from services.auth_service.src.models.outlet import Outlet
 from services.auth_service.src.models.role import Permission, Role, RolePermission
 from services.auth_service.src.models.user import User, UserRole
@@ -22,7 +22,7 @@ async def init_db() -> None:
         logger.info("Ensuring database tables exist...")
         await conn.run_sync(Base.metadata.create_all)
 
-    async with AsyncSession(engine) as session:
+    async with AsyncSessionLocal() as session:
         try:
             # 1. Seed Permissions
             logger.info("Checking and seeding permissions...")
@@ -76,7 +76,9 @@ async def init_db() -> None:
                     is_active=True,
                 )
                 session.add(main_outlet)
-                await session.commit()
+                await session.flush()
+            main_outlet_id = main_outlet.id
+            await session.commit()
 
             # 4. Seed First Superadmin User
             logger.info("Checking and seeding first superadmin user...")
@@ -96,7 +98,7 @@ async def init_db() -> None:
                     full_name=settings.FIRST_SUPERADMIN_NAME,
                     is_active=True,
                     is_superuser=True,
-                    outlet_id=main_outlet.id,
+                    outlet_id=main_outlet_id,
                 )
                 session.add(admin_user)
                 await session.flush()

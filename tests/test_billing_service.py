@@ -276,16 +276,57 @@ async def test_thermal_receipt_formatting():
 
 @pytest.mark.asyncio
 async def test_pos_and_shifts_api():
+    from shared.auth import Permissions, create_access_token
+
+    cashier_id = str(uuid4())
+    outlet_id = str(uuid4())
+
+    cashier_token = create_access_token({
+        "sub": cashier_id,
+        "email": "cashier@shop.example.com",
+        "roles": ["CASHIER"],
+        "permissions": [
+            Permissions.POS_CHECKOUT,
+            Permissions.POS_SHIFT_MANAGE,
+            Permissions.CATALOG_READ,
+            Permissions.STOCK_READ,
+        ],
+        "outlet_id": outlet_id,
+        "is_superuser": False,
+    })
+    no_perm_token = create_access_token({
+        "sub": str(uuid4()),
+        "email": "visitor@shop.example.com",
+        "roles": ["VIEWER"],
+        "permissions": [],
+        "is_superuser": False,
+    })
+
+    cashier_headers = {"Authorization": f"Bearer {cashier_token}"}
+    no_perm_headers = {"Authorization": f"Bearer {no_perm_token}"}
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        outlet_id = str(uuid4())
-        cashier_id = str(uuid4())
+        # 1. Unauthenticated request must return 401 Unauthorized
+        unauth_resp = await client.post(
+            "/shifts/open",
+            json={"outlet_id": outlet_id, "opening_float": 100.0, "notes": "Morning Shift"},
+        )
+        assert unauth_resp.status_code == 401
 
-        # 1. Open POS Shift
+        # 2. Insufficient permission request must return 403 Forbidden
+        forbidden_resp = await client.post(
+            "/shifts/open",
+            json={"outlet_id": outlet_id, "opening_float": 100.0, "notes": "Morning Shift"},
+            headers=no_perm_headers,
+        )
+        assert forbidden_resp.status_code == 403
+
+        # 3. Open POS Shift with Cashier token
         open_resp = await client.post(
             "/shifts/open",
             json={"outlet_id": outlet_id, "opening_float": 100.0, "notes": "Morning Shift"},
-            headers={"X-User-Id": cashier_id},
+            headers=cashier_headers,
         )
         assert open_resp.status_code == 201
         shift_data = open_resp.json()
@@ -293,7 +334,7 @@ async def test_pos_and_shifts_api():
         assert shift_data["status"] == "OPEN"
         assert shift_data["expected_cash"] == 100.0
 
-        # 2. Checkout Order
+        # 4. Checkout Order
         var_id = str(uuid4())
         checkout_resp = await client.post(
             "/pos/checkout",
@@ -314,6 +355,7 @@ async def test_pos_and_shifts_api():
                 "discount_amount": 0.0,
                 "tax_amount": 5.0,
             },
+            headers=cashier_headers,
         )
         assert checkout_resp.status_code == 202
         order_data = checkout_resp.json()
@@ -321,32 +363,34 @@ async def test_pos_and_shifts_api():
         assert order_data["status"] == "PENDING"
         assert order_data["total_amount"] == 65.0
 
-        # 3. Simulate Stock Reserved via DB and test payment
+        # 5. Simulate Stock Reserved via DB and test payment
         async with TestAsyncSession() as session:
             from uuid import UUID
             o = await session.get(Order, UUID(order_id))
             o.status = "STOCK_RESERVED"
             await session.commit()
 
-        # 4. Pay Order
+        # 6. Pay Order
         pay_resp = await client.post(
             f"/pos/orders/{order_id}/pay",
             json={"payment_mode": "CASH", "amount": 65.0},
+            headers=cashier_headers,
         )
         assert pay_resp.status_code == 200
         assert pay_resp.json()["status"] == "COMPLETED"
 
-        # 5. Fetch Receipt
-        receipt_resp = await client.get(f"/pos/orders/{order_id}/receipt")
+        # 7. Fetch Receipt
+        receipt_resp = await client.get(f"/pos/orders/{order_id}/receipt", headers=cashier_headers)
         assert receipt_resp.status_code == 200
         receipt = receipt_resp.json()
         assert receipt["total_amount"] == 65.0
         assert "RETAIL STORE RECEIPT" in receipt["escpos_thermal_text"]
 
-        # 6. Close Shift
+        # 8. Close Shift
         close_resp = await client.post(
             f"/shifts/{shift_id}/close",
             json={"closing_cash": 165.0, "notes": "Balanced drawer"},
+            headers=cashier_headers,
         )
         assert close_resp.status_code == 200
         closed_data = close_resp.json()

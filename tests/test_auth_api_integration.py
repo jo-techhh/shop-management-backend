@@ -194,3 +194,30 @@ async def test_full_auth_and_rbac_flow():
         )
         assert forbidden_resp.status_code == 403
         assert "outlet:write" in forbidden_resp.json()["detail"]
+
+        # 8. Test Refresh Token via POST
+        admin_refresh_token = tokens["refresh_token"]
+        post_refresh_resp = await client.post(
+            "/auth/refresh",
+            json={"refresh_token": admin_refresh_token},
+        )
+        assert post_refresh_resp.status_code == 200
+        refreshed_tokens = post_refresh_resp.json()
+        assert "access_token" in refreshed_tokens
+        assert "refresh_token" in refreshed_tokens
+
+        # 9. Test Refresh Token via GET (using Bearer header)
+        get_refresh_resp = await client.get(
+            "/auth/refresh",
+            headers={"Authorization": f"Bearer {admin_refresh_token}"},
+        )
+        assert get_refresh_resp.status_code == 200
+        get_refreshed_tokens = get_refresh_resp.json()
+        assert "access_token" in get_refreshed_tokens
+
+        # 10. Test Refresh Token via GET (using query parameter)
+        query_refresh_resp = await client.get(
+            f"/auth/refresh?refresh_token={admin_refresh_token}",
+        )
+        assert query_refresh_resp.status_code == 200
+        assert "access_token" in query_refresh_resp.json()

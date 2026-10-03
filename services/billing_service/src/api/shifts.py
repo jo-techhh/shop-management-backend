@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.billing_service.src.db.session import get_db
 from services.billing_service.src.models.shift import PosShift
 from services.billing_service.src.schemas.shift import PosShiftResponse, ShiftCloseRequest, ShiftOpenRequest
+from shared.auth import CurrentUser, Permissions, require_permission
 
 router = APIRouter(prefix="/shifts", tags=["POS Shifts"])
 
@@ -21,14 +22,10 @@ async def open_shift(
     x_user_id: Optional[str] = Header(None, alias="x-user-id"),
     cashier_id_query: Optional[UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission(Permissions.POS_SHIFT_MANAGE)),
 ) -> PosShiftResponse:
     """Open a cashier register shift with starting cash float."""
-    cashier_uuid_str = x_user_id or (str(cashier_id_query) if cashier_id_query else None)
-    if not cashier_uuid_str:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cashier ID required (via X-User-Id header or cashier_id query).",
-        )
+    cashier_uuid_str = x_user_id or (str(cashier_id_query) if cashier_id_query else None) or str(current_user.id)
     cashier_id = UUID(cashier_uuid_str)
 
     # Check if cashier already has an active OPEN shift
@@ -64,6 +61,7 @@ async def close_shift(
     shift_id: UUID,
     close_in: ShiftCloseRequest,
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.POS_SHIFT_MANAGE)),
 ) -> PosShiftResponse:
     """Close an active shift, calculate drawer cash variance, and finalize reconciliation."""
     stmt = select(PosShift).where(PosShift.id == shift_id, PosShift.status == "OPEN")
@@ -90,12 +88,14 @@ async def close_shift(
 @router.get("/active", response_model=PosShiftResponse)
 async def get_active_shift(
     outlet_id: UUID,
-    cashier_id: UUID,
+    cashier_id: Optional[UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission(Permissions.POS_SHIFT_MANAGE)),
 ) -> PosShiftResponse:
     """Get current cashier's active shift at an outlet."""
+    effective_cashier_id = cashier_id or current_user.id
     stmt = select(PosShift).where(
-        PosShift.cashier_id == cashier_id,
+        PosShift.cashier_id == effective_cashier_id,
         PosShift.outlet_id == outlet_id,
         PosShift.status == "OPEN",
     )
@@ -109,7 +109,11 @@ async def get_active_shift(
 
 
 @router.get("/{shift_id}", response_model=PosShiftResponse)
-async def get_shift(shift_id: UUID, db: AsyncSession = Depends(get_db)) -> PosShiftResponse:
+async def get_shift(
+    shift_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(require_permission(Permissions.POS_SHIFT_MANAGE)),
+) -> PosShiftResponse:
     """Get shift details by ID."""
     stmt = select(PosShift).where(PosShift.id == shift_id)
     res = await db.execute(stmt)

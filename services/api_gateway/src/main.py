@@ -174,6 +174,13 @@ async def route_roles(request: Request, path: str = "") -> Response:
     return await proxy_request(request, settings.AUTH_SERVICE_URL, f"/roles{subpath}")
 
 
+@app.api_route("/api/v1/users/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@app.api_route("/api/v1/users", methods=["GET", "POST"])
+async def route_users(request: Request, path: str = "") -> Response:
+    subpath = f"/{path}" if path else ""
+    return await proxy_request(request, settings.AUTH_SERVICE_URL, f"/users{subpath}")
+
+
 # Catalog & Inventory Microservice Routing
 @app.api_route("/api/v1/catalog/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @app.api_route("/api/v1/catalog", methods=["GET", "POST"])

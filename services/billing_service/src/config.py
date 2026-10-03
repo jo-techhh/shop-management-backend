@@ -24,6 +24,10 @@ class BillingSettings(BaseSettings):
     # Outbox polling interval (seconds)
     OUTBOX_POLL_INTERVAL: float = 0.5
 
+    # JWT Security & Auth
+    JWT_SECRET_KEY: str = "dev-insecure-secret-key-replace-in-production-abcdef1234567890"
+    JWT_ALGORITHM: str = "HS256"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
