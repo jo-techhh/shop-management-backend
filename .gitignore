@@ -45,3 +45,4 @@ htmlcov/
 # Databases & local volumes
 postgres_data/
 redis_data/
+local.credentials
